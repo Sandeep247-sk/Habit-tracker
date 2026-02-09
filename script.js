@@ -239,22 +239,48 @@ function updateLabel(text) {
     if (elements.currentWeekLabel) elements.currentWeekLabel.innerText = text;
 }        
 
+    function calculateStreak(habit) {
+        if (!habit.checks || Object.keys(habit.checks).length === 0) return 0;
+
+        const dates = Object.keys(habit.checks)
+            .filter(k => habit.checks[k]) // Only count true checks
+            .map(k => new Date(k))
+            .sort((a, b) => a - b);
+        
+        if (dates.length === 0) return 0;
+
+        let maxStreak = 1;
+        let currentStreak = 1;
+
+        for (let i = 1; i < dates.length; i++) {
+            const prev = dates[i-1];
+            const curr = dates[i];
+            
+            // Check if curr is exactly 1 day after prev
+            const diffTime = Math.abs(curr - prev);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+            
+            if (diffDays === 1) {
+                currentStreak++;
+            } else if (diffDays > 1) {
+                // Gap found, reset
+                if (currentStreak > maxStreak) maxStreak = currentStreak;
+                currentStreak = 1;
+            }
+        }
+        if (currentStreak > maxStreak) maxStreak = currentStreak;
+        
+        return maxStreak;
+    }
+
     function updateStats() {
         // Stats Logic:
-        // Calculate completion based on the Current Week displayed if in Weekly view
-        // Or global stats? Let's make it reflect the current view.
-        
         let totalChecks = 0;
         let checkedCount = 0;
-        let bestStreak = 0; // Simplified for now
-        
-        // Helper to check if a date string is within the current viewing window
-        // For simplicity, just count ALL checks for stats or current month checks.
-        // Let's stick to Current Month like before for consistency, 
-        // OR better: if View is Weekly, show stats for THIS WEEK.
         
         if (state.view === 'weekly') {
-            const start = new Date(state.currentWeekStart);
+            // Fix: Use getMonday based on viewDate, similar to renderGrid
+            const start = getMonday(new Date(state.viewDate));
             for (let i = 0; i < 7; i++) {
                 const d = new Date(start);
                 d.setDate(start.getDate() + i);
@@ -270,13 +296,6 @@ function updateLabel(text) {
              const daysCount = getDaysInMonth(state.currentMonth, state.currentYear);
              state.habits.forEach(habit => {
                  for(let d=1; d<=daysCount; d++) {
-                     // Note: this assumes we only track by currentYear-currentMonth-d, 
-                     // but formatDateKey might use d.getMonth() which is 0-indexed. 
-                     // My previous logic was Year-Month-Day. 
-                     // formatDateKey uses getMonth() (0-11).
-                     // Previous logic: `${state.currentYear}-${state.currentMonth}-${d}`.
-                     // formatDateKey: `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`.
-                     // Consistently use 0-indexed months.
                      const key = `${state.currentYear}-${state.currentMonth}-${d}`;
                      totalChecks++;
                      if (habit.checks[key]) checkedCount++;
@@ -298,12 +317,17 @@ function updateLabel(text) {
 
         document.getElementById('monthlyVal').innerText = `${percent}%`; // Reusing same calc for now as placeholder
         
-        // Best Streak (Global calculation is expensive, let's just use current week streak)
-        // A real streak calc would need to sort all keys.
-        document.getElementById('bestStreak').innerText = `CALC...`; // Placeholder
+        // Calculate Best Streak
+        let globalBestStreak = 0;
+        state.habits.forEach(h => {
+            const s = calculateStreak(h);
+            if (s > globalBestStreak) globalBestStreak = s;
+        });
+        document.getElementById('bestStreak').innerText = `${globalBestStreak} days`;
 
         drawChart(percent);
     }
+
 
     function drawChart(percent) {
         const ctx = elements.canvas.getContext('2d');
