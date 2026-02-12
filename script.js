@@ -105,7 +105,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     elements.loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const username = elements.usernameInput.value.trim();
-        const password = elements.passwordInput.value;new
+        const password = elements.passwordInput.value;
         
         elements.loginError.innerText = "";
         elements.loginError.style.display = 'none';
