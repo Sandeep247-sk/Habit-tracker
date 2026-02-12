@@ -45,6 +45,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         weekControls: document.getElementById('weekControls')
     };
 
+    // Clear inputs on load
+    elements.usernameInput.value = "";
+    elements.passwordInput.value = "";
+
     // Initialize Firebase
     function initFirebase() {
         if (firebaseConfig.apiKey !== "REPLACE_WITH_YOUR_API_KEY" && typeof firebase !== 'undefined') {
