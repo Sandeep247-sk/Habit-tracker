@@ -1,38 +1,31 @@
-document.addEventListener('DOMContentLoaded', () => {
-    // --- STATE MANAGEMENT ---
-    // Helper for Monday
-    function getMonday(d) {
-        d = new Date(d);
-        var day = d.getDay(),
-            diff = d.getDate() - day + (day == 0 ? -6 : 1); // adjust when day is sunday
-        return new Date(d.setDate(diff));
-    }
-    
-    function isToday(someDate) {
-        const today = new Date();
-        return someDate.getDate() == today.getDate() &&
-            someDate.getMonth() == today.getMonth() &&
-            someDate.getFullYear() == today.getFullYear();
-    }
-    const state = {
-        habits: JSON.parse(localStorage.getItem('habits')) || [
-            { id: 1, name: 'Drink Water', icon: '💧', width: 150, checks: {} },
-            { id: 2, name: 'Exercise', icon: '🏃', width: 150, checks: {} }
-        ],
-        currentMonth: new Date().getMonth(),
-        currentYear: new Date().getFullYear(),
-        view: 'weekly', // Default to weekly
-        viewDate: getMonday(new Date()) // Start date of currently viewed week
-    };
-    
-    // Migration: Ensure all habits have icons and width
-    state.habits.forEach(h => {
-        if (!h.icon) h.icon = '✨';
-        if (!h.width) h.width = 150; // Default width
-    });
+document.addEventListener('DOMContentLoaded', async () => {
+    // --- FIREBASE CONFIGURATION ---
+    // User requested: Login "Sandeep" / "Sandeep@123"
+    // To enable Cross-Device Sync, you MUST replace these placeholders with your actual Firebase Project config.
+    const firebaseConfig = {
+    apiKey: "AIzaSyDNsyEiW5zmlSa7wbqZSnp7-Kz4t2NTQ90",
+    authDomain: "habit-tracker-login-9972.firebaseapp.com",
+    projectId: "habit-tracker-login-9972",
+    storageBucket: "habit-tracker-login-9972.firebasestorage.app",
+    messagingSenderId: "829866636156",
+    appId: "1:829866636156:web:1a7b3e15561f04c6ffeaf9",
+    measurementId: "G-VY5FWZR71R"
+};
+
+    let db = null;
+    let auth = null;
+    let isFirebaseActive = false;
+    let currentUser = null;
 
     // --- DOM ELEMENTS ---
     const elements = {
+        loginOverlay: document.getElementById('loginOverlay'),
+        loginForm: document.getElementById('loginForm'),
+        usernameInput: document.getElementById('username'),
+        passwordInput: document.getElementById('password'),
+        loginError: document.getElementById('loginError'),
+        appContainer: document.getElementById('appContainer'),
+        
         monthSelect: document.getElementById('monthSelect'),
         yearSelect: document.getElementById('yearSelect'),
         daysHeader: document.getElementById('daysHeader'),
@@ -52,13 +45,204 @@ document.addEventListener('DOMContentLoaded', () => {
         weekControls: document.getElementById('weekControls')
     };
 
-    // --- INITIALIZATION ---
-    function init() {
+    // Initialize Firebase
+    function initFirebase() {
+        if (firebaseConfig.apiKey !== "REPLACE_WITH_YOUR_API_KEY" && typeof firebase !== 'undefined') {
+            try {
+                if (!firebase.apps.length) {
+                    firebase.initializeApp(firebaseConfig);
+                }
+                db = firebase.firestore();
+                auth = firebase.auth();
+                isFirebaseActive = true;
+                console.log("Firebase initialized successfully.");
+            } catch (e) {
+                console.error("Firebase initialization failed:", e);
+                showLoginError("Firebase Error: Check console for details.");
+            }
+        } else {
+            console.log("Firebase config missing or SDK not loaded. using Local Mode.");
+        }
+    }
+
+    // --- STATE MANAGEMENT ---
+    function getMonday(d) {
+        d = new Date(d);
+        var day = d.getDay(),
+            diff = d.getDate() - day + (day == 0 ? -6 : 1); 
+        return new Date(d.setDate(diff));
+    }
+
+    const defaultHabits = [
+        { id: 1, name: 'Drink Water', icon: '💧', width: 150, checks: {} },
+        { id: 2, name: 'Exercise', icon: '🏃', width: 150, checks: {} }
+    ];
+
+    const state = {
+        habits: [],
+        currentMonth: new Date().getMonth(),
+        currentYear: new Date().getFullYear(),
+        view: 'weekly',
+        viewDate: getMonday(new Date())
+    };
+
+
+    // --- LOGIN LOGIC ---
+    // Toggle Password Visibility
+    const togglePassword = document.getElementById('togglePassword');
+    if (togglePassword) {
+        togglePassword.addEventListener('click', () => {
+            const type = elements.passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            elements.passwordInput.setAttribute('type', type);
+            togglePassword.textContent = type === 'password' ? '👁️' : '🙈';
+        });
+    }
+
+    elements.loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = elements.usernameInput.value.trim();
+        const password = elements.passwordInput.value;
+        
+        elements.loginError.innerText = "";
+        elements.loginError.style.display = 'none';
+
+        // HARDCODED CREDENTIAL CHECK (As requested)
+        // Correct Credentials: Master / Sandeep@9972
+        if (username !== "Master" || password !== "Sandeep@9972") {
+            showLoginError("Invalid username or password.");
+            return;
+        }
+
+        // Use a NEW email purely for this new "Master" identity
+        // This ensures the new password works without conflict
+        const email = "master@tracker.app"; 
+
+        if (isFirebaseActive) {
+            try {
+                // STRATEGY: Create User First (Ensures account exists)
+                await auth.createUserWithEmailAndPassword(email, password);
+                
+                // Success! Update profile
+                await auth.currentUser.updateProfile({ displayName: username });
+                console.log("Account created & logged in!");
+
+            } catch (error) {
+                // If email already in use -> Try Signing In
+                if (error.code === 'auth/email-already-in-use') {
+                    try {
+                        await auth.signInWithEmailAndPassword(email, password);
+                        console.log("Logged in successfully!");
+                    } catch (signInError) {
+                         // Wrong password or other sign-in issue
+                         console.error("Sign-in error:", signInError);
+                         let msg = signInError.message;
+                         if (signInError.code === 'auth/wrong-password' || signInError.message.includes("INVALID_LOGIN_CREDENTIALS")) {
+                             msg = "Invalid password.";
+                         }
+                         showLoginError(msg);
+                         return;
+                    }
+                } else {
+                    // Other creation error
+                    console.error("Creation error:", error);
+                    showLoginError("Login Error: " + error.message);
+                    return;
+                }
+            }
+        } else {
+            // Local Mode Login
+            console.warn("Firebase not configured. Using local session.");
+        }
+
+        // Successful Login (if we reached here without returning)
+        onLoginSuccess(username);
+    });
+
+    function showLoginError(msg) {
+        elements.loginError.innerText = msg;
+        elements.loginError.style.display = 'block';
+    }
+
+    async function onLoginSuccess(username) {
+        // Hide Overlay
+        elements.loginOverlay.style.opacity = '0';
+        setTimeout(() => {
+            elements.loginOverlay.style.display = 'none';
+        }, 500);
+
+        // Show App
+        elements.appContainer.style.display = 'flex';
+        // Trigger reflow/animation if needed
+        
+        // Load Data
+        state.habits = await loadData();
+        
+        // Initialize App
+        initApp();
+    }
+
+
+    // --- STORAGE MANAGER ---
+    async function loadData() {
+        // Ensure defaults have icons/width
+        function validate(habits) {
+            if (!Array.isArray(habits)) return defaultHabits;
+            habits.forEach(h => {
+                if (!h.icon) h.icon = '✨';
+                if (!h.width) h.width = 150;
+            });
+            return habits;
+        }
+
+        if (isFirebaseActive && auth.currentUser) {
+            try {
+                const uid = auth.currentUser.uid;
+                const docRef = db.collection('habits').doc(uid);
+                const doc = await docRef.get();
+                
+                if (doc.exists) {
+                    return validate(doc.data().habits);
+                } else {
+                    // First time for this cloud user? Try to sync local data or use default
+                    const localData = JSON.parse(localStorage.getItem('habits_sandeep')); // separate key
+                    const initialData = localData || defaultHabits;
+                    await docRef.set({ habits: initialData });
+                    return validate(initialData);
+                }
+            } catch (e) {
+                console.error("Cloud load failed:", e);
+                return validate(JSON.parse(localStorage.getItem('habits_sandeep')) || defaultHabits);
+            }
+        } else {
+            // Local fallback (Keyed by user to simulate multitenancy locally)
+            return validate(JSON.parse(localStorage.getItem('habits_sandeep')) || defaultHabits);
+        }
+    }
+
+    async function saveData() {
+        // Save to LocalStorage (Always backup)
+        localStorage.setItem('habits_sandeep', JSON.stringify(state.habits));
+
+        if (isFirebaseActive && auth.currentUser) {
+            try {
+                const uid = auth.currentUser.uid;
+                await db.collection('habits').doc(uid).set({
+                    habits: state.habits,
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                console.log("Saved to Cloud");
+            } catch (e) {
+                console.error("Cloud save failed:", e);
+            }
+        }
+    }
+    
+    // --- MAIN APP LOGIC ---
+    function initApp() {
         populateDateSelectors();
         renderGrid();
         updateStats();
         setupEventListeners();
-        // updateWeekLabel(); // Removed as it's now handled in renderGrid
     }
 
     // --- HELPERS ---
@@ -71,23 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function saveState() {
-        localStorage.setItem('habits', JSON.stringify(state.habits));
-    }
-
-    function updateWeekLabel() {
-        if (state.view === 'weekly') {
-            const end = new Date(state.currentWeekStart);
-            end.setDate(end.getDate() + 6);
-            
-            const options = { month: 'short', day: 'numeric' };
-            const startStr = state.currentWeekStart.toLocaleDateString('en-US', options);
-            const endStr = end.toLocaleDateString('en-US', options);
-            
-            if (elements.currentWeekLabel) elements.currentWeekLabel.innerText = `${startStr} - ${endStr}`;
-            if (elements.weekControls) elements.weekControls.style.display = 'flex';
-        } else {
-            if (elements.weekControls) elements.weekControls.style.display = 'none';
-        }
+        saveData(); 
     }
 
     // --- RENDERING ---
@@ -114,136 +282,122 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
- // --- RENDER GRID (TRANSPOSED) ---
-function renderGrid() {
-    const habitsHeader = document.getElementById('habitsHeader');
-    const daysRowsContainer = document.getElementById('daysRowsContainer');
-    
-    if (!habitsHeader || !daysRowsContainer) return;
+    function renderGrid() {
+        const habitsHeader = document.getElementById('habitsHeader');
+        const daysRowsContainer = document.getElementById('daysRowsContainer');
+        
+        if (!habitsHeader || !daysRowsContainer) return;
 
-    habitsHeader.innerHTML = '';
-    daysRowsContainer.innerHTML = '';
+        habitsHeader.innerHTML = '';
+        daysRowsContainer.innerHTML = '';
 
-    // Initialize viewDate if missing
-    if (!state.viewDate) state.viewDate = new Date();
-    
-    // Determine Start Date and Number of Days based on View
-    let startDate, daysCount;
-    
-    if (state.view === 'weekly') {
-        startDate = getMonday(new Date(state.viewDate));
-        daysCount = 7;
-        // Update Label
-        const endDate = new Date(startDate);
-        endDate.setDate(startDate.getDate() + 6);
-        updateLabel(`${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}`);
-        // Ensure week controls are visible
-        if(elements.weekControls) elements.weekControls.style.display = 'flex';
-    } else {
-        // Monthly or Yearly (treating Yearly as Monthly for now to handle grid size)
-        startDate = new Date(state.currentYear, state.currentMonth, 1);
-        daysCount = getDaysInMonth(state.currentMonth, state.currentYear);
-        updateLabel(`${startDate.toLocaleString('default', { month: 'long', year: 'numeric' })}`);
-        // Hide week controls in monthly view
-        if(elements.weekControls) elements.weekControls.style.display = 'none';
-    }
+        if (!state.viewDate) state.viewDate = new Date();
+        
+        let startDate, daysCount;
+        
+        if (state.view === 'weekly') {
+            startDate = getMonday(new Date(state.viewDate));
+            daysCount = 7;
+            const endDate = new Date(startDate);
+            endDate.setDate(startDate.getDate() + 6);
+            updateLabel(`${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}`);
+            if(elements.weekControls) elements.weekControls.style.display = 'flex';
+        } else {
+            startDate = new Date(state.currentYear, state.currentMonth, 1);
+            daysCount = getDaysInMonth(state.currentMonth, state.currentYear);
+            updateLabel(`${startDate.toLocaleString('default', { month: 'long', year: 'numeric' })}`);
+            if(elements.weekControls) elements.weekControls.style.display = 'none';
+        }
 
-    // 1. Render Habits Header (Columns)
-    state.habits.forEach(habit => {
-        const col = document.createElement('div');
-        col.className = 'habit-col-title';
-        if (habit.width < 80) col.classList.add('collapsed');
-        col.style.width = `${habit.width}px`;
-        col.dataset.id = habit.id;
-        
-        // Icon Input
-        const iconInput = document.createElement('input');
-        iconInput.className = 'habit-icon-input';
-        iconInput.value = habit.icon;
-        iconInput.maxLength = 2; // Limit to 1-2 chars (emoji)
-        iconInput.onchange = (e) => updateHabitIcon(habit.id, e.target.value);
-        
-        // Name Input
-        const input = document.createElement('input');
-        input.className = 'habit-name-input';
-        input.value = habit.name;
-        input.onchange = (e) => updateHabitName(habit.id, e.target.value);
-        
-        const del = document.createElement('button');
-        del.className = 'delete-habit-btn';
-        del.innerText = '×';
-        del.onclick = () => deleteHabit(habit.id);
-        
-        // Resize Handle
-        const handle = document.createElement('div');
-        handle.className = 'resize-handle';
-        handle.onmousedown = (e) => initResize(e, habit.id);
+        // Render Habits Header
+        state.habits.forEach(habit => {
+            const col = document.createElement('div');
+            col.className = 'habit-col-title';
+            if (habit.width < 80) col.classList.add('collapsed');
+            col.style.width = `${habit.width}px`;
+            col.dataset.id = habit.id;
+            
+            const iconInput = document.createElement('input');
+            iconInput.className = 'habit-icon-input';
+            iconInput.value = habit.icon;
+            iconInput.maxLength = 2;
+            iconInput.onchange = (e) => updateHabitIcon(habit.id, e.target.value);
+            
+            const input = document.createElement('input');
+            input.className = 'habit-name-input';
+            input.value = habit.name;
+            input.onchange = (e) => updateHabitName(habit.id, e.target.value);
+            
+            const del = document.createElement('button');
+            del.className = 'delete-habit-btn';
+            del.innerText = '×';
+            del.onclick = () => deleteHabit(habit.id);
+            
+            const handle = document.createElement('div');
+            handle.className = 'resize-handle';
+            handle.onmousedown = (e) => initResize(e, habit.id);
 
-        col.appendChild(iconInput);
-        col.appendChild(input);
-        col.appendChild(del);
-        col.appendChild(handle);
-        habitsHeader.appendChild(col);
-    });
+            col.appendChild(iconInput);
+            col.appendChild(input);
+            col.appendChild(del);
+            col.appendChild(handle);
+            habitsHeader.appendChild(col);
+        });
 
-    // 2. Render Day Rows
-    for (let i = 0; i < daysCount; i++) {
-        const d = new Date(startDate);
-        d.setDate(startDate.getDate() + i);
-        const dateKey = formatDateKey(d);
-        const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
-        const dayNum = d.getDate();
-        
-        const row = document.createElement('div');
-        row.className = 'day-row';
-        
-        // Day Label (Left Column)
-        const labelCell = document.createElement('div');
-        labelCell.className = 'day-label-cell';
-        labelCell.innerHTML = `<span>${dayName}</span><span class="date-num">${dayNum}</span>`;
-        
-        const todayKey = formatDateKey(new Date());
-        if (dateKey === todayKey) {
-            labelCell.style.color = 'var(--accent-light)';
-            labelCell.style.fontWeight = 'bold';
+        // Render Rows
+        for (let i = 0; i < daysCount; i++) {
+            const d = new Date(startDate);
+            d.setDate(startDate.getDate() + i);
+            const dateKey = formatDateKey(d);
+            const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+            const dayNum = d.getDate();
+            
+            const row = document.createElement('div');
+            row.className = 'day-row';
+            
+            const labelCell = document.createElement('div');
+            labelCell.className = 'day-label-cell';
+            labelCell.innerHTML = `<span>${dayName}</span><span class="date-num">${dayNum}</span>`;
+            
+            const todayKey = formatDateKey(new Date());
+            if (dateKey === todayKey) {
+                labelCell.style.color = 'var(--accent-light)';
+                labelCell.style.fontWeight = 'bold';
+            }
+            
+            row.appendChild(labelCell);
+            
+            state.habits.forEach(habit => {
+                const cell = document.createElement('div');
+                cell.className = 'check-cell';
+                cell.style.width = `${habit.width}px`;
+                cell.dataset.id = habit.id;
+                
+                const checkbox = document.createElement('div');
+                checkbox.className = 'custom-checkbox';
+                if (habit.checks && habit.checks[dateKey]) {
+                    checkbox.classList.add('checked');
+                }
+                checkbox.onclick = () => toggleCheck(habit.id, dateKey);
+                
+                cell.appendChild(checkbox);
+                row.appendChild(cell);
+            });
+            
+            daysRowsContainer.appendChild(row);
         }
         
-        row.appendChild(labelCell);
-        
-        // Checkboxes (Columns)
-        state.habits.forEach(habit => {
-            const cell = document.createElement('div');
-            cell.className = 'check-cell';
-            cell.style.width = `${habit.width}px`;
-            cell.dataset.id = habit.id;
-            
-            const checkbox = document.createElement('div');
-            checkbox.className = 'custom-checkbox';
-            if (habit.checks && habit.checks[dateKey]) {
-                checkbox.classList.add('checked');
-            }
-            checkbox.onclick = () => toggleCheck(habit.id, dateKey);
-            
-            cell.appendChild(checkbox);
-            row.appendChild(cell);
-        });
-        
-        daysRowsContainer.appendChild(row);
+        updateStats();
     }
-    
-    // Update Stats based on this view
-    updateStats();
-}
 
-function updateLabel(text) {
-    if (elements.currentWeekLabel) elements.currentWeekLabel.innerText = text;
-}        
+    function updateLabel(text) {
+        if (elements.currentWeekLabel) elements.currentWeekLabel.innerText = text;
+    }        
 
     function calculateStreak(habit) {
         if (!habit.checks || Object.keys(habit.checks).length === 0) return 0;
-
         const dates = Object.keys(habit.checks)
-            .filter(k => habit.checks[k]) // Only count true checks
+            .filter(k => habit.checks[k]) 
             .map(k => new Date(k))
             .sort((a, b) => a - b);
         
@@ -255,79 +409,71 @@ function updateLabel(text) {
         for (let i = 1; i < dates.length; i++) {
             const prev = dates[i-1];
             const curr = dates[i];
-            
-            // Check if curr is exactly 1 day after prev
             const diffTime = Math.abs(curr - prev);
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
             
             if (diffDays === 1) {
                 currentStreak++;
             } else if (diffDays > 1) {
-                // Gap found, reset
                 if (currentStreak > maxStreak) maxStreak = currentStreak;
                 currentStreak = 1;
             }
         }
         if (currentStreak > maxStreak) maxStreak = currentStreak;
-        
         return maxStreak;
     }
 
     function updateStats() {
-        // Stats Logic:
-        let totalChecks = 0;
-        let checkedCount = 0;
-        
-        if (state.view === 'weekly') {
-            // Fix: Use getMonday based on viewDate, similar to renderGrid
-            const start = getMonday(new Date(state.viewDate));
-            for (let i = 0; i < 7; i++) {
-                const d = new Date(start);
-                d.setDate(start.getDate() + i);
+        function calcStats(startDate, days) {
+            let total = 0;
+            let checked = 0;
+            for (let i = 0; i < days; i++) {
+                const d = new Date(startDate);
+                d.setDate(startDate.getDate() + i);
                 const key = formatDateKey(d);
-                
                 state.habits.forEach(habit => {
-                    totalChecks++;
-                    if (habit.checks[key]) checkedCount++;
+                    total++;
+                    if (habit.checks && habit.checks[key]) checked++;
                 });
             }
-        } else {
-             // Fallback to monthly stats (generic)
-             const daysCount = getDaysInMonth(state.currentMonth, state.currentYear);
-             state.habits.forEach(habit => {
-                 for(let d=1; d<=daysCount; d++) {
-                     const key = `${state.currentYear}-${state.currentMonth}-${d}`;
-                     totalChecks++;
-                     if (habit.checks[key]) checkedCount++;
-                 }
-             });
+            return total === 0 ? 0 : Math.round((checked / total) * 100);
         }
 
-        const percent = totalChecks === 0 ? 0 : Math.round((checkedCount / totalChecks) * 100);
-        
-        // Update Progress Bar
-        elements.progressBar.style.width = `${percent}%`;
-        elements.progressText.innerText = `${percent}%`;
-        elements.chartPercentage.innerText = `${percent}%`;
+        const daysInMonth = getDaysInMonth(state.currentMonth, state.currentYear);
+        const monthStart = new Date(state.currentYear, state.currentMonth, 1);
+        const monthlyPercent = calcStats(monthStart, daysInMonth);
 
-        // Update Insight Text
-        const weeklyVal = Math.round(percent); 
+        const currentWeekStart = getMonday(new Date());
+        const currentWeekPercent = calcStats(currentWeekStart, 7);
+
+        let mainPercent = 0;
+        if (state.view === 'weekly') {
+            const viewWeekStart = getMonday(new Date(state.viewDate));
+            mainPercent = calcStats(viewWeekStart, 7);
+        } else {
+            mainPercent = monthlyPercent;
+        }
+
+        if (elements.progressBar) elements.progressBar.style.width = `${mainPercent}%`;
+        if (elements.progressText) elements.progressText.innerText = `${mainPercent}%`;
+        if (elements.chartPercentage) elements.chartPercentage.innerText = `${mainPercent}%`;
+
         const weeklyEl = document.getElementById('weeklyStats');
-        if(weeklyEl) weeklyEl.innerText = `${weeklyVal}%`;
+        if (weeklyEl) weeklyEl.innerText = `${currentWeekPercent}%`;
 
-        document.getElementById('monthlyVal').innerText = `${percent}%`; // Reusing same calc for now as placeholder
+        const monthlyEl = document.getElementById('monthlyVal');
+        if (monthlyEl) monthlyEl.innerText = `${monthlyPercent}%`;
         
-        // Calculate Best Streak
         let globalBestStreak = 0;
         state.habits.forEach(h => {
             const s = calculateStreak(h);
             if (s > globalBestStreak) globalBestStreak = s;
         });
-        document.getElementById('bestStreak').innerText = `${globalBestStreak} days`;
+        const streakEl = document.getElementById('bestStreak');
+        if(streakEl) streakEl.innerText = `${globalBestStreak} days`;
 
-        drawChart(percent);
+        drawChart(mainPercent);
     }
-
 
     function drawChart(percent) {
         const ctx = elements.canvas.getContext('2d');
@@ -337,36 +483,32 @@ function updateLabel(text) {
 
         ctx.clearRect(0, 0, elements.canvas.width, elements.canvas.height);
 
-        // Background Circle
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
         ctx.lineWidth = 14;
         ctx.strokeStyle = 'rgba(255,255,255,0.05)'; 
         ctx.stroke();
 
-        // Progress Arc
         const startAngle = -0.5 * Math.PI;
         const endAngle = (2 * Math.PI * (percent / 100)) - (0.5 * Math.PI);
 
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius, startAngle, endAngle);
         ctx.lineWidth = 14;
-        ctx.strokeStyle = '#4361ee'; // Accent color Blue
+        ctx.strokeStyle = '#4361ee'; 
         ctx.lineCap = 'round';
-        // Add Glow
         ctx.shadowBlur = 15;
         ctx.shadowColor = '#4cc9f0';
         ctx.stroke();
-        ctx.shadowBlur = 0; // Reset
+        ctx.shadowBlur = 0; 
     }
 
-    // --- ACTIONS ---
     function toggleCheck(habitId, dayKey) {
         const habit = state.habits.find(h => h.id === habitId);
         if (habit) {
             habit.checks[dayKey] = !habit.checks[dayKey];
-            saveState(); // Auto-save
-            renderGrid(); // Re-render to update UI state
+            saveState();
+            renderGrid();
             updateStats();
         }
     }
@@ -418,13 +560,8 @@ function updateLabel(text) {
         const newDate = new Date(state.viewDate);
         newDate.setDate(newDate.getDate() + (offset * 7));
         state.viewDate = newDate;
-        
-        // Trigger a render
         renderGrid();
     }
-    
-    // Removed old updateWeekLabel as it's now handled in renderGrid
-    // Removed updateHabitName (duplicate) if any? No, checking.
 
     // --- EVENT LISTENERS ---
     let listenersAttached = false;
@@ -434,7 +571,6 @@ function updateLabel(text) {
 
         elements.monthSelect.addEventListener('change', (e) => {
             state.currentMonth = parseInt(e.target.value);
-            // reset view date to start of that month
             state.viewDate = new Date(state.currentYear, state.currentMonth, 1);
             renderGrid();
         });
@@ -445,19 +581,17 @@ function updateLabel(text) {
             renderGrid();
         });
 
-        // Week Navigation
         if(elements.prevWeekBtn) elements.prevWeekBtn.addEventListener('click', () => changeWeek(-1));
         if(elements.nextWeekBtn) elements.nextWeekBtn.addEventListener('click', () => changeWeek(1));
 
         elements.addHabitBtn.addEventListener('click', (e) => {
-            e.preventDefault(); // Prevent any default action
-            e.stopPropagation(); // Stop bubbling
+            e.preventDefault(); 
+            e.stopPropagation(); 
             addHabit();
         });
         
         elements.saveBtn.addEventListener('click', () => {
             saveState();
-            // Custom Toast
             const btn = elements.saveBtn;
             const originalText = btn.innerText;
             btn.innerText = 'Saved!';
@@ -518,21 +652,17 @@ function updateLabel(text) {
         document.body.style.cursor = 'col-resize';
     }
 
-    // Global Resize Listeners
     window.addEventListener('mousemove', (e) => {
         if (!resizeState.isResizing) return;
         
         const deltaX = e.clientX - resizeState.startX;
         let newWidth = resizeState.startWidth + deltaX;
-        
-        // Constraints
-        if (newWidth < 50) newWidth = 50; // Min width (icon size)
-        if (newWidth > 400) newWidth = 400; // Max width
+        if (newWidth < 50) newWidth = 50; 
+        if (newWidth > 400) newWidth = 400; 
 
         const habit = state.habits.find(h => h.id === resizeState.habitId);
         if (habit) {
             habit.width = newWidth;
-            // Immediate DOM update for performance (skip full render)
             updateColumnWidth(habit.id, newWidth);
         }
     });
@@ -541,31 +671,25 @@ function updateLabel(text) {
         if (resizeState.isResizing) {
             resizeState.isResizing = false;
             document.body.style.cursor = 'default';
-            saveState(); // Persist new width
-            renderGrid(); // Final render to ensure clean state
+            saveState(); 
+            renderGrid(); 
         }
     });
 
     function updateColumnWidth(habitId, width) {
-        // Update Header
         const headerCol = document.querySelector(`.habit-col-title[data-id="${habitId}"]`);
         if (headerCol) {
             headerCol.style.width = `${width}px`;
             if (width < 80) headerCol.classList.add('collapsed');
             else headerCol.classList.remove('collapsed');
         }
-
-        // Update All Cells in Rows
         const cells = document.querySelectorAll(`.check-cell[data-id="${habitId}"]`);
         cells.forEach(cell => {
             cell.style.width = `${width}px`;
         });
     }
 
-    // Start App
-    // Check if already initialized to prevent double-run
-    if (!window.appInitialized) {
-        window.appInitialized = true;
-        init();
-    }
+    // MAIN ENTRY
+    initFirebase();
+    // (Note: We wait for user login in the UI before initializing app content)
 });
